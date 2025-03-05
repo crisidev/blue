@@ -1,0 +1,6 @@
+{
+    "reportUnannotatedClassAttribute": "none",
+    "include": [
+        "."
+    ]
+}

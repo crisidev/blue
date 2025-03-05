@@ -6,6 +6,7 @@
 # version: 1.0
 
 import pyxel
+from typing_extensions import override
 
 TRANSPARENT_COLOR = 2
 SCROLL_BORDER_X = 80
@@ -15,16 +16,25 @@ TILE_SPAWN2 = (1, 1)
 TILE_SPAWN3 = (2, 1)
 WALL_TILE_X = 4
 
-scroll_x = 0
-player = None
-enemies = []
+
+class Entity:
+    def __init__(self, x: int, y: int, is_alive: bool = True) -> None:
+        self.x: int = x
+        self.y: int = y
+        self.is_alive: bool = is_alive
+
+    def update(self): ...
+    def draw(self): ...
 
 
-def get_tile(tile_x, tile_y):
+def get_tile(tile_x: int, tile_y: int) -> tuple[int, int]:
     return pyxel.tilemaps[0].pget(tile_x, tile_y)
 
 
-def is_colliding(x, y, is_falling):
+enemies: list[Entity] = []
+
+
+def is_colliding(x: int, y: int, is_falling: bool) -> bool:
     x1 = pyxel.floor(x) // 8
     y1 = pyxel.floor(y) // 8
     x2 = (pyxel.ceil(x) + 7) // 8
@@ -40,7 +50,7 @@ def is_colliding(x, y, is_falling):
     return False
 
 
-def push_back(x, y, dx, dy):
+def push_back(x: int, y: int, dx: int, dy: int) -> tuple[int, int]:
     for _ in range(pyxel.ceil(abs(dy))):
         step = max(-1, min(1, dy))
         if is_colliding(x, y + step, dy > 0):
@@ -56,12 +66,12 @@ def push_back(x, y, dx, dy):
     return x, y
 
 
-def is_wall(x, y):
+def is_wall(x: int, y: int) -> bool:
     tile = get_tile(x // 8, y // 8)
     return tile == TILE_FLOOR or tile[0] >= WALL_TILE_X
 
 
-def spawn_enemy(left_x, right_x):
+def spawn_enemy(left_x: int, right_x: int):
     left_x = pyxel.ceil(left_x / 8)
     right_x = pyxel.floor(right_x / 8)
     for x in range(left_x, right_x + 1):
@@ -75,21 +85,27 @@ def spawn_enemy(left_x, right_x):
                 enemies.append(Enemy3(x * 8, y * 8))
 
 
-def cleanup_entities(entities):
+def cleanup_entities(entities: list[Entity]) -> None:
     for i in range(len(entities) - 1, -1, -1):
         if not entities[i].is_alive:
             del entities[i]
 
 
-class Player:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.dx = 0
-        self.dy = 0
-        self.direction = 1
-        self.is_falling = False
+class Enemy(Entity): ...
 
+
+scroll_x = 0
+
+
+class Player(Entity):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x, y)
+        self.dx: int = 0
+        self.dy: int = 0
+        self.direction: int = 1
+        self.is_falling: bool = False
+
+    @override
     def update(self):
         global scroll_x
         last_y = self.y
@@ -118,21 +134,24 @@ class Player:
         if self.y >= pyxel.height:
             game_over()
 
+    @override
     def draw(self):
         u = (2 if self.is_falling else pyxel.frame_count // 3 % 2) * 8
         w = 8 if self.direction > 0 else -8
         pyxel.blt(self.x, self.y, 0, u, 16, w, 8, TRANSPARENT_COLOR)
 
 
-class Enemy1:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.dx = 0
-        self.dy = 0
-        self.direction = -1
-        self.is_alive = True
+player = Player(0, 0)
 
+
+class Enemy1(Enemy):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x, y)
+        self.dx: int = 0
+        self.dy: int = 0
+        self.direction: int = -1
+
+    @override
     def update(self):
         self.dx = self.direction
         self.dy = min(self.dy + 1, 3)
@@ -142,48 +161,44 @@ class Enemy1:
             self.direction = -1
         self.x, self.y = push_back(self.x, self.y, self.dx, self.dy)
 
+    @override
     def draw(self):
         u = pyxel.frame_count // 4 % 2 * 8
         w = 8 if self.direction > 0 else -8
         pyxel.blt(self.x, self.y, 0, u, 24, w, 8, TRANSPARENT_COLOR)
 
 
-class Enemy2:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.dx = 0
-        self.dy = 0
-        self.direction = 1
-        self.is_alive = True
+class Enemy2(Enemy):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x, y)
+        self.dx: int = 0
+        self.dy: int = 0
+        self.direction: int = -1
 
+    @override
     def update(self):
         self.dx = self.direction
         self.dy = min(self.dy + 1, 3)
         if is_wall(self.x, self.y + 8) or is_wall(self.x + 7, self.y + 8):
-            if self.direction < 0 and (
-                is_wall(self.x - 1, self.y + 4) or not is_wall(self.x - 1, self.y + 8)
-            ):
+            if self.direction < 0 and (is_wall(self.x - 1, self.y + 4) or not is_wall(self.x - 1, self.y + 8)):
                 self.direction = 1
-            elif self.direction > 0 and (
-                is_wall(self.x + 8, self.y + 4) or not is_wall(self.x + 7, self.y + 8)
-            ):
+            elif self.direction > 0 and (is_wall(self.x + 8, self.y + 4) or not is_wall(self.x + 7, self.y + 8)):
                 self.direction = -1
         self.x, self.y = push_back(self.x, self.y, self.dx, self.dy)
 
+    @override
     def draw(self):
         u = pyxel.frame_count // 4 % 2 * 8 + 16
         w = 8 if self.direction > 0 else -8
         pyxel.blt(self.x, self.y, 0, u, 24, w, 8, TRANSPARENT_COLOR)
 
 
-class Enemy3:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.time_to_fire = 0
-        self.is_alive = True
+class Enemy3(Enemy):
+    def __init__(self, x: int, y: int) -> None:
+        super().__init__(x, y)
+        self.time_to_fire: int = 0
 
+    @override
     def update(self):
         self.time_to_fire -= 1
         if self.time_to_fire <= 0:
@@ -195,23 +210,24 @@ class Enemy3:
                 enemies.append(Enemy3Bullet(self.x, self.y, dx / dist, dy / dist))
                 self.time_to_fire = 60
 
+    @override
     def draw(self):
         u = pyxel.frame_count // 8 % 2 * 8
         pyxel.blt(self.x, self.y, 0, u, 32, 8, 8, TRANSPARENT_COLOR)
 
 
-class Enemy3Bullet:
-    def __init__(self, x, y, dx, dy):
-        self.x = x
-        self.y = y
-        self.dx = dx
-        self.dy = dy
-        self.is_alive = True
+class Enemy3Bullet(Entity):
+    def __init__(self, x: int, y: int, dx: float, dy: float) -> None:
+        super().__init__(x, y)
+        self.dx: int = int(dx)
+        self.dy: int = int(dy)
 
+    @override
     def update(self):
         self.x += self.dx
         self.y += self.dy
 
+    @override
     def draw(self):
         u = pyxel.frame_count // 2 % 2 * 8 + 16
         pyxel.blt(self.x, self.y, 0, u, 32, 8, 8, TRANSPARENT_COLOR)
@@ -272,4 +288,5 @@ def game_over():
     pyxel.play(3, 9)
 
 
-App()
+if __name__ == "__main__":
+    _ = App()
