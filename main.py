@@ -5,93 +5,28 @@
 # license: MIT
 # version: 1.0
 
+import builtins
+
 import pyxel
 from typing_extensions import override
 
-TRANSPARENT_COLOR = 2
-SCROLL_BORDER_X = 80
-TILE_FLOOR = (1, 0)
-TILE_SPAWN1 = (0, 1)
-TILE_SPAWN2 = (1, 1)
-TILE_SPAWN3 = (2, 1)
-WALL_TILE_X = 4
+from base import SCROLL_BORDER_X, TILE_SPAWN1, TILE_SPAWN2, TILE_SPAWN3, TRANSPARENT_COLOR, Entity
+from enemies import Enemy1, Enemy2, Enemy3
+from utils import utils
 
 
-class Entity:
-    def __init__(self, x: int, y: int, is_alive: bool = True) -> None:
-        self.x: int = x
-        self.y: int = y
-        self.is_alive: bool = is_alive
-
-    def update(self): ...
-    def draw(self): ...
-
-
-def get_tile(tile_x: int, tile_y: int) -> tuple[int, int]:
-    return pyxel.tilemaps[0].pget(tile_x, tile_y)
-
-
-enemies: list[Entity] = []
-
-
-def is_colliding(x: int, y: int, is_falling: bool) -> bool:
-    x1 = pyxel.floor(x) // 8
-    y1 = pyxel.floor(y) // 8
-    x2 = (pyxel.ceil(x) + 7) // 8
-    y2 = (pyxel.ceil(y) + 7) // 8
-    for yi in range(y1, y2 + 1):
-        for xi in range(x1, x2 + 1):
-            if get_tile(xi, yi)[0] >= WALL_TILE_X:
-                return True
-    if is_falling and y % 8 == 1:
-        for xi in range(x1, x2 + 1):
-            if get_tile(xi, y1 + 1) == TILE_FLOOR:
-                return True
-    return False
-
-
-def push_back(x: int, y: int, dx: int, dy: int) -> tuple[int, int]:
-    for _ in range(pyxel.ceil(abs(dy))):
-        step = max(-1, min(1, dy))
-        if is_colliding(x, y + step, dy > 0):
-            break
-        y += step
-        dy -= step
-    for _ in range(pyxel.ceil(abs(dx))):
-        step = max(-1, min(1, dx))
-        if is_colliding(x + step, y, dy > 0):
-            break
-        x += step
-        dx -= step
-    return x, y
-
-
-def is_wall(x: int, y: int) -> bool:
-    tile = get_tile(x // 8, y // 8)
-    return tile == TILE_FLOOR or tile[0] >= WALL_TILE_X
-
-
-def spawn_enemy(left_x: int, right_x: int):
+def spawn_enemy(left_x: int, right_x: int, enemies: list[Entity]):
     left_x = pyxel.ceil(left_x / 8)
     right_x = pyxel.floor(right_x / 8)
     for x in range(left_x, right_x + 1):
         for y in range(16):
-            tile = get_tile(x, y)
+            tile = utils.get_tile(x, y)
             if tile == TILE_SPAWN1:
                 enemies.append(Enemy1(x * 8, y * 8))
             elif tile == TILE_SPAWN2:
                 enemies.append(Enemy2(x * 8, y * 8))
             elif tile == TILE_SPAWN3:
                 enemies.append(Enemy3(x * 8, y * 8))
-
-
-def cleanup_entities(entities: list[Entity]) -> None:
-    for i in range(len(entities) - 1, -1, -1):
-        if not entities[i].is_alive:
-            del entities[i]
-
-
-class Enemy(Entity): ...
 
 
 scroll_x = 0
@@ -106,7 +41,7 @@ class Player(Entity):
         self.is_falling: bool = False
 
     @override
-    def update(self):
+    def update(self, entities: list[Entity]):
         global scroll_x
         last_y = self.y
         if pyxel.btn(pyxel.KEY_LEFT) or pyxel.btn(pyxel.GAMEPAD1_BUTTON_DPAD_LEFT):
@@ -119,7 +54,7 @@ class Player(Entity):
         if pyxel.btnp(pyxel.KEY_SPACE) or pyxel.btnp(pyxel.GAMEPAD1_BUTTON_A):
             self.dy = -6
             pyxel.play(3, 8)
-        self.x, self.y = push_back(self.x, self.y, self.dx, self.dy)
+        self.x, self.y = utils.push_back(self.x, self.y, self.dx, self.dy)
         if self.x < scroll_x:
             self.x = scroll_x
         if self.y < 0:
@@ -130,9 +65,9 @@ class Player(Entity):
         if self.x > scroll_x + SCROLL_BORDER_X:
             last_scroll_x = scroll_x
             scroll_x = min(self.x - SCROLL_BORDER_X, 240 * 8)
-            spawn_enemy(last_scroll_x + 128, scroll_x + 127)
+            spawn_enemy(last_scroll_x + 128, scroll_x + 127, entities)
         if self.y >= pyxel.height:
-            game_over()
+            raise ValueError
 
     @override
     def draw(self):
@@ -142,124 +77,44 @@ class Player(Entity):
 
 
 player = Player(0, 0)
-
-
-class Enemy1(Enemy):
-    def __init__(self, x: int, y: int) -> None:
-        super().__init__(x, y)
-        self.dx: int = 0
-        self.dy: int = 0
-        self.direction: int = -1
-
-    @override
-    def update(self):
-        self.dx = self.direction
-        self.dy = min(self.dy + 1, 3)
-        if self.direction < 0 and is_wall(self.x - 1, self.y + 4):
-            self.direction = 1
-        elif self.direction > 0 and is_wall(self.x + 8, self.y + 4):
-            self.direction = -1
-        self.x, self.y = push_back(self.x, self.y, self.dx, self.dy)
-
-    @override
-    def draw(self):
-        u = pyxel.frame_count // 4 % 2 * 8
-        w = 8 if self.direction > 0 else -8
-        pyxel.blt(self.x, self.y, 0, u, 24, w, 8, TRANSPARENT_COLOR)
-
-
-class Enemy2(Enemy):
-    def __init__(self, x: int, y: int) -> None:
-        super().__init__(x, y)
-        self.dx: int = 0
-        self.dy: int = 0
-        self.direction: int = -1
-
-    @override
-    def update(self):
-        self.dx = self.direction
-        self.dy = min(self.dy + 1, 3)
-        if is_wall(self.x, self.y + 8) or is_wall(self.x + 7, self.y + 8):
-            if self.direction < 0 and (is_wall(self.x - 1, self.y + 4) or not is_wall(self.x - 1, self.y + 8)):
-                self.direction = 1
-            elif self.direction > 0 and (is_wall(self.x + 8, self.y + 4) or not is_wall(self.x + 7, self.y + 8)):
-                self.direction = -1
-        self.x, self.y = push_back(self.x, self.y, self.dx, self.dy)
-
-    @override
-    def draw(self):
-        u = pyxel.frame_count // 4 % 2 * 8 + 16
-        w = 8 if self.direction > 0 else -8
-        pyxel.blt(self.x, self.y, 0, u, 24, w, 8, TRANSPARENT_COLOR)
-
-
-class Enemy3(Enemy):
-    def __init__(self, x: int, y: int) -> None:
-        super().__init__(x, y)
-        self.time_to_fire: int = 0
-
-    @override
-    def update(self):
-        self.time_to_fire -= 1
-        if self.time_to_fire <= 0:
-            dx = player.x - self.x
-            dy = player.y - self.y
-            sq_dist = dx * dx + dy * dy
-            if sq_dist < 60**2:
-                dist = pyxel.sqrt(sq_dist)
-                enemies.append(Enemy3Bullet(self.x, self.y, dx / dist, dy / dist))
-                self.time_to_fire = 60
-
-    @override
-    def draw(self):
-        u = pyxel.frame_count // 8 % 2 * 8
-        pyxel.blt(self.x, self.y, 0, u, 32, 8, 8, TRANSPARENT_COLOR)
-
-
-class Enemy3Bullet(Entity):
-    def __init__(self, x: int, y: int, dx: float, dy: float) -> None:
-        super().__init__(x, y)
-        self.dx: int = int(dx)
-        self.dy: int = int(dy)
-
-    @override
-    def update(self):
-        self.x += self.dx
-        self.y += self.dy
-
-    @override
-    def draw(self):
-        u = pyxel.frame_count // 2 % 2 * 8 + 16
-        pyxel.blt(self.x, self.y, 0, u, 32, 8, 8, TRANSPARENT_COLOR)
+setattr(builtins, "player", player)
 
 
 class App:
     def __init__(self):
+        self.enemies: list[Entity] = []
         pyxel.init(128, 128, title="Pyxel Platformer")
         pyxel.load("assets/platformer.pyxres")
-
         # Change enemy spawn tiles invisible
         pyxel.images[0].rect(0, 8, 24, 8, TRANSPARENT_COLOR)
-
-        global player
-        player = Player(0, 0)
-        spawn_enemy(0, 127)
+        spawn_enemy(0, 127, self.enemies)
         pyxel.playm(0, loop=True)
         pyxel.run(self.update, self.draw)
+
+    @staticmethod
+    def cleanup_entities(entities: list[Entity]) -> None:
+        for i in range(len(entities) - 1, -1, -1):
+            if not entities[i].is_alive:
+                del entities[i]
 
     def update(self):
         if pyxel.btn(pyxel.KEY_Q):
             pyxel.quit()
 
-        player.update()
-        for enemy in enemies:
+        try:
+            player.update(self.enemies)
+        except ValueError:
+            self.game_over()
+            return
+
+        for enemy in self.enemies:
             if abs(player.x - enemy.x) < 6 and abs(player.y - enemy.y) < 6:
-                game_over()
+                self.game_over()
                 return
-            enemy.update()
+            enemy.update(self.enemies)
             if enemy.x < scroll_x - 8 or enemy.x > scroll_x + 160 or enemy.y > 160:
                 enemy.is_alive = False
-        cleanup_entities(enemies)
+        self.cleanup_entities(self.enemies)
 
     def draw(self):
         pyxel.cls(0)
@@ -272,20 +127,19 @@ class App:
         # Draw characters
         pyxel.camera(scroll_x, 0)
         player.draw()
-        for enemy in enemies:
+        for enemy in self.enemies:
             enemy.draw()
 
-
-def game_over():
-    global scroll_x, enemies
-    scroll_x = 0
-    player.x = 0
-    player.y = 0
-    player.dx = 0
-    player.dy = 0
-    enemies = []
-    spawn_enemy(0, 127)
-    pyxel.play(3, 9)
+    def game_over(self):
+        global scroll_x
+        scroll_x = 0
+        player.x = 0
+        player.y = 0
+        player.dx = 0
+        player.dy = 0
+        self.enemies = []
+        spawn_enemy(0, 127, self.enemies)
+        pyxel.play(3, 9)
 
 
 if __name__ == "__main__":
